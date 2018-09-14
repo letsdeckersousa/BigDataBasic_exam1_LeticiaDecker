@@ -1,0 +1,175 @@
+heat_template_version: 2018-09-14
+description: exercise 1 of the big data exam 
+
+# parameters to pass to stack
+parameters:
+  keyname:
+    type: string
+    label: key name
+  image:
+    type: string
+    label: image_id
+  flavor:
+    type: string
+    label: flavor
+  floating-network-id:
+    type: string 
+    label: floating id of network
+
+#creation of the network topology
+resources: 
+  # the first private network connect to public network
+  privateNet1:
+    type: OS::Neutron::Net 
+    properties:
+      name: privateNet1
+
+  # subnet to connect to the external router 
+  sub1privateNet1:
+    type: OS::Neutron::Subnet
+    properties:
+      name: sub1privateNet1
+      network_id: {get_resource: privateNet1}
+      cidr: "10.0.1.0/24"
+      gateway_ip: "10.0.1.1"
+  
+  # subnet to connect to the internal network using the second router 
+  sub2privateNet1:
+    type: OS::Neutron::Subnet
+    properties:
+      name: sub2privateNet1
+      network_id: {get_resource: privateNet1}
+      cidr: "10.1.1.0/24"
+      gateway_ip: "10.1.1.1"
+
+  # the router that connects to public network 
+  router1:
+    type:
+    properties: 
+      name: router1
+      external_gateway_info:
+        network: {get_param: floating-network-id}
+  
+  router1InterfaceNetPrivate1:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: {get_resource: router1}
+      subnet_id: {get_resource: sub1privateNet1}
+
+  # security group used
+  jumphost-secgroup:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: jumphost-secgroup
+      rules:
+        - protocol: icmp
+        - protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+  
+  master-port:
+    type: OS::Neutron::Port
+    properties:
+      name: master-port
+      network: {get_param: privateNet1}
+      security_groups:
+        - get_resource: jumphost-secgroup
+
+  master:
+    type: OS::Nova::Server
+    properties:
+      name: master
+      key_name: {get_param: keyname}
+      image: {get_param: image}
+      flavor: {get_param: flavor}
+      network:
+        - port: {get_resource: master-port}
+
+  # associate a floating ip to the master node
+  floating-ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: {get_param: floating-network-id}
+
+  floatingip-association:
+    type: OS::Neutron::FloatingIPAssociation
+    properties:
+      floatingip_id: {get_resource: ffloating-ip}
+      port_id: {get_resource: master-port}
+  
+  # create the second network to connect the slaves nodes
+  # the second private network connect to  privateNet1
+  privateNet2:
+    type: OS::Neutron::Net 
+    properties:
+      name: privateNet2
+
+  # subnet to connect to the internal router 
+  sub1privateNet2:
+    type: OS::Neutron::Subnet
+    properties:
+      name: sub1privateNet2
+      network_id: {get_resource: privateNet2}
+      cidr: "10.0.0.0/24"
+      gateway_ip: "10.0.0.1"
+
+  # the router that connects to privateNet1 and privateNet2
+  router2:
+    type:
+    properties: 
+      name: router2
+      
+  # interfaces to connect the router2 to the both networks
+  router2InterfaceNetPrivate1:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: {get_resource: router2}
+      subnet_id: {get_resource: sub2privateNet1}
+
+  router2InterfaceNetPrivate2:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: {get_resource: router2}
+      subnet_id: {get_resource: sub1privateNet2}
+
+  # create the worker nodes slaves at privateNet2, the most internal network
+  slave1-port:
+    type: OS::Neutron::Port
+    properties:
+      name: slave1-port
+      network: {get_param: privateNet2}
+      security_groups:
+        - get_resource: jumphost-secgroup
+
+  slave1:
+    type: OS::Nova::Server
+    properties:
+      name: slave1
+      key_name: {get_param: keyname}
+      image: {get_param: image}
+      flavor: {get_param: flavor}
+      network:
+        - port: {get_resource: slave1-port}
+
+  slave2-port:
+    type: OS::Neutron::Port
+    properties:
+      name: slave2-port
+      network: {get_param: privateNet2}
+      security_groups:
+        - get_resource: jumphost-secgroup
+
+  slave2:
+    type: OS::Nova::Server
+    properties:
+      name: slave2
+      key_name: {get_param: keyname}
+      image: {get_param: image}
+      flavor: {get_param: flavor}
+      network:
+        - port: {get_resource: slave2-port}
+
+outputs:
+  
+
+
